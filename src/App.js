@@ -11,8 +11,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [emptyResponse, setEmptyResponse] = useState(false);
 
-  // Hàm xử lý parse CSV
   const parseCSV = (csvText) => {
     Papa.parse(csvText, {
       header: true,
@@ -24,10 +24,10 @@ function App() {
             const time = row['Thời gian tải lên'];
             const date = time.split(' ')[0];
             return {
-              time: time,
+              time,
               licensePlate: row['Biển số xe'] || 'Không rõ',
               imageUrl: row['Đường dẫn hình ảnh'],
-              date: date,
+              date,
             };
           });
         setViolations(data);
@@ -40,7 +40,6 @@ function App() {
     });
   };
 
-  // Đọc dữ liệu mặc định từ violations.csv
   useEffect(() => {
     fetch('/violations.csv')
       .then((response) => {
@@ -48,13 +47,12 @@ function App() {
         return response.text();
       })
       .then((csvText) => parseCSV(csvText))
-      .catch((err) => {
+      .catch(() => {
         console.warn('Không tìm thấy violations.csv, bỏ qua.');
         setLoading(false);
       });
   }, []);
 
-  // Xử lý upload CSV
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -67,12 +65,12 @@ function App() {
     }
   };
 
-  // Xử lý upload ảnh/video để phân tích
   const handleMediaUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     setUploading(true);
+    setEmptyResponse(false);
     const formData = new FormData();
     formData.append('file', file);
 
@@ -81,18 +79,24 @@ function App() {
         method: 'POST',
         body: formData,
       });
+
       if (!res.ok) throw new Error('Lỗi khi gửi dữ liệu đến backend');
 
       const result = await res.json();
-      // result phải là mảng các vi phạm từ backend
-      const newViolations = result.map((item) => ({
-        time: item.time,
-        licensePlate: item.license_plate || 'Không rõ',
-        imageUrl: item.cropped_image_url,
-        date: item.time.split(' ')[0],
-      }));
+      console.log("📥 Dữ liệu backend trả về:", result);
 
-      setViolations((prev) => [...newViolations, ...prev]);
+      if (Array.isArray(result) && result.length > 0) {
+        const newViolations = result.map((item) => ({
+          time: item.time,
+          licensePlate: item.license_plate || 'Không rõ',
+          imageUrl: item.cropped_image_url,
+          date: item.time.split(' ')[0],
+        }));
+        setViolations((prev) => [...newViolations, ...prev]);
+      } else {
+        console.warn("⚠️ Backend trả về mảng rỗng.");
+        setEmptyResponse(true);
+      }
     } catch (err) {
       setError('Phân tích thất bại: ' + err.message);
     } finally {
@@ -100,7 +104,6 @@ function App() {
     }
   };
 
-  // Xử lý kéo thả
   const handleDrop = (e) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
@@ -117,18 +120,15 @@ function App() {
 
   const handleDragOver = (e) => e.preventDefault();
 
-  // Lọc theo tìm kiếm
   const filteredViolations = violations.filter(
     (v) =>
       v.time.toLowerCase().includes(search.toLowerCase()) ||
       v.licensePlate.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Nhóm theo ngày
   const violationsByDate = filteredViolations.reduce((groups, v) => {
-    const date = v.date;
-    if (!groups[date]) groups[date] = [];
-    groups[date].push(v);
+    if (!groups[v.date]) groups[v.date] = [];
+    groups[v.date].push(v);
     return groups;
   }, {});
 
@@ -139,7 +139,6 @@ function App() {
     <div className="App">
       <h1>📸 DANH SÁCH VI PHẠM</h1>
 
-      {/* Upload Section */}
       <div
         className="upload-section"
         onDrop={handleDrop}
@@ -161,6 +160,7 @@ function App() {
           </div>
         </div>
         {uploading && <p>⏳ Đang phân tích bằng YOLO...</p>}
+        {emptyResponse && <p>⚠️ Không phát hiện vi phạm nào.</p>}
       </div>
 
       <input
@@ -171,40 +171,42 @@ function App() {
         className="search-box"
       />
 
-      {Object.keys(violationsByDate).sort((a, b) => b.localeCompare(a)).map((date) => (
-        <div key={date} className="day-group">
-          <h2>🗓️ {date}</h2>
-          <table className="violation-table">
-            <thead>
-              <tr>
-                <th>Thời gian</th>
-                <th>Ảnh</th>
-                <th>Biển số</th>
-              </tr>
-            </thead>
-            <tbody>
-              {violationsByDate[date].map((violation, index) => (
-                <tr key={index}>
-                  <td>{violation.time}</td>
-                  <td>
-                    {violation.imageUrl.startsWith('http') ? (
-                      <img
-                        src={violation.imageUrl}
-                        alt={violation.time}
-                        width="100"
-                        onClick={() => setSelectedMedia(violation.imageUrl)}
-                      />
-                    ) : (
-                      <span>Tệp cục bộ: {violation.imageUrl}</span>
-                    )}
-                  </td>
-                  <td>{violation.licensePlate}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ))}
+      {Object.keys(violationsByDate).length === 0 ? (
+        <p>📭 Chưa có dữ liệu để hiển thị.</p>
+      ) : (
+        Object.keys(violationsByDate)
+          .sort((a, b) => b.localeCompare(a))
+          .map((date) => (
+            <div key={date} className="day-group">
+              <h2>🗓️ {date}</h2>
+              <table className="violation-table">
+                <thead>
+                  <tr>
+                    <th>Thời gian</th>
+                    <th>Ảnh</th>
+                    <th>Biển số</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {violationsByDate[date].map((violation, index) => (
+                    <tr key={index}>
+                      <td>{violation.time}</td>
+                      <td>
+                        <img
+                          src={violation.imageUrl}
+                          alt={violation.time}
+                          width="100"
+                          onClick={() => setSelectedMedia(violation.imageUrl)}
+                        />
+                      </td>
+                      <td>{violation.licensePlate}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))
+      )}
 
       {selectedMedia && (
         <div className="overlay" onClick={() => setSelectedMedia(null)}>
