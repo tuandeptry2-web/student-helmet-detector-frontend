@@ -25,7 +25,7 @@ function App() {
             const date = time.split(' ')[0];
             return {
               time,
-              licensePlate: row['Biển số xe'] || 'Không rõ',
+              licensePlate: row['Biển số xe'] || 'Không xác định',
               imageUrl: row['Đường dẫn hình ảnh'],
               date,
             };
@@ -88,7 +88,7 @@ function App() {
       if (Array.isArray(result) && result.length > 0) {
         const newViolations = result.map((item) => ({
           time: item.time,
-          licensePlate: item.license_plate || 'Không rõ',
+          licensePlate: item.license_plate || 'Không xác định',
           imageUrl: item.cropped_image_url,
           date: item.time.split(' ')[0],
         }));
